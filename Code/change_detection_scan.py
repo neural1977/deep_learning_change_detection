@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu May 16 17:54:32 2019
+
+@author: gm.mommi
+"""
+
+
 # USAGE
 # python train_network.py --dataset images --model santa_not_santa.model
 
@@ -9,13 +17,14 @@ matplotlib.use("TkAgg")
 from sklearn.model_selection import StratifiedKFold
 from keras.callbacks import ModelCheckpoint
 from keras.callbacks import EarlyStopping
+from keras.callbacks import CSVLogger
 from keras.preprocessing.image import ImageDataGenerator
 from keras.optimizers import Adam
 from sklearn.model_selection import train_test_split
 from keras.preprocessing.image import img_to_array
 from keras.utils import to_categorical
 from keras.utils import np_utils
-from keras.applications.vgg16 import VGG16
+from keras.applications.inception_resnet_v2 import InceptionResNetV2
 from imutils import paths
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,7 +47,7 @@ ap.add_argument("-d", "--dataset", required=True,
 	help="path to input dataset")
 ap.add_argument("-m", "--model", required=True,
 	help="path to output model")
-ap.add_argument("-p", "--plot", type=str, default="plot.png",
+ap.add_argument("-p", "--plot", type=str, default="plot4.png",
 	help="path to output loss/accuracy plot")
 ap.add_argument("-l", "--labelbin", required=True,
 	help="path to output label binarizer")
@@ -46,7 +55,7 @@ args = vars(ap.parse_args())
 
 # initialize the number of epochs to train for, initia learning rate,
 # and batch size
-EPOCHS = 1
+EPOCHS = 200
 INIT_LR = 1e-3
 BS = 32
 
@@ -66,7 +75,7 @@ random.shuffle(imagePaths)
 for imagePath in imagePaths:
 	# load the image, pre-process it, and store it in the data list
 	image = cv2.imread(imagePath)
-	image = cv2.resize(image, (64, 64))
+	image = cv2.resize(image, (75, 75))
 	image = img_to_array(image)
 	data.append(image)
 
@@ -92,31 +101,26 @@ labels = lb.fit_transform(labels)
 	
 
 # construct the image generator for data augmentation
-aug = ImageDataGenerator(rotation_range=50, width_shift_range=0.1,
+aug = ImageDataGenerator(width_shift_range=0.1,
 	height_shift_range=0.1, shear_range=0.2, zoom_range=0.2,
-	horizontal_flip=True, fill_mode="nearest")
+	horizontal_flip=True, vertical_flip=True, fill_mode="nearest")
 
 # initialize the model
 print("[INFO] compiling model...")
 
- 
-
- 
+  
 # Show a summary of the model. Check the number of trainable parameters
-
-vg = VGG16(weights= "imagenet", input_shape=(3,64,64), classes=10, include_top= False)#width=64, height=64, depth=3, classes=6, )
-print(vg.summary())
-
-
+incrsv2 = InceptionResNetV2(weights= 'imagenet', input_shape=(75,75,3), classes=10, include_top= False)
 opt = Adam(lr=INIT_LR, decay=INIT_LR / EPOCHS)
 
 model = models.Sequential() 
+
 # Add the vgg convolutional base model
-model.add(vg)
+model.add(incrsv2)
  
 # Add new layers
 model.add(layers.Flatten())
-#model.add(layers.Dense(1024, activation='relu'))
+model.add(layers.Dense(1024, activation='relu'))
 model.add(layers.Dense(10, activation='softmax'))
 print(model.summary())
 
@@ -124,28 +128,31 @@ print(model.summary())
 
 model.compile(loss="categorical_crossentropy", optimizer=opt,
           metrics=[ "accuracy"])
+
+
+#Checkpoint
+##### CONTROLLARE
+tag = 'InceptionResNetV2_'+"{epoch:02d}-{val_acc:.2f}_"
+filepath='bestmodel' + tag + '.hdf5'
+checkpoint = ModelCheckpoint(filepath, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
+csv_logger = CSVLogger('History_' + tag + '.log')
+
 		  
 # train the network
 print("[INFO] training network...")
 H = model.fit_generator(aug.flow(trainX, trainY, batch_size=BS),
 	validation_data=(testX, testY), steps_per_epoch=len(trainX) // BS,
-	epochs=EPOCHS, verbose=2)	
-pdb.set_trace() 	
+	epochs=EPOCHS, verbose=2, callbacks=[csv_logger, checkpoint])		
+
+
 '''
-# Checkpoint
-filepath='esercizio1/bestmodel.hdf5'
-checkpoint = ModelCheckpoint(filepath, monitor='val_acc', verbose=1, save_best_only=True, mode='max')
-
-
 # early stopping 
 earlyStopping = EarlyStopping(monitor='val_acc',
                               min_delta=0.005,
                               patience=5,
                               verbose=1, mode='auto', restore_best_weights=True)
-							  
+						  
 '''	
-    
-
 
 
 # save the model to disk
@@ -157,7 +164,7 @@ print("[INFO] serializing label binarizer...")
 f = open(args["labelbin"], "wb")
 f.write(pickle.dumps(lb))
 f.close()
-'''
+
 # plot the training loss and accuracy
 plt.style.use("ggplot")
 plt.figure()
@@ -166,10 +173,9 @@ plt.plot(np.arange(0, N), H.history["loss"], label="train_loss")
 plt.plot(np.arange(0, N), H.history["val_loss"], label="val_loss")
 plt.plot(np.arange(0, N), H.history["acc"], label="train_acc")
 plt.plot(np.arange(0, N), H.history["val_acc"], label="val_acc")
-plt.title("Training Loss and Accuracy on Trash")
+plt.title("Training Loss and Accuracy on Eurosat (InceptionResNetV2)")
 plt.xlabel("Epoch #")
 plt.ylabel("Loss/Accuracy")
 plt.legend(loc="lower left")
 plt.savefig(args["plot"])
 print(model.summary())
- '''
